@@ -1,0 +1,7 @@
+aiohttp
+pandas
+Pillow
+imagehash
+pyppeteer
+PyQt5
+openpyxl
