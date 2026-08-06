@@ -71,7 +71,16 @@ async def run_logic(ref_url_raw, start_num, end_num, extra_tlds, prefix_active, 
                 'name': ref_url
             }
 
-            emitter.result_signal.emit([[ref_url, "REFERENČNÍ DOMÉNA", ref_url, 200, 100, ref_img_bytes]])
+            emitter.result_signal.emit([[
+                d['name'],
+                "REFERENČNÍ" if k == "REFERENCE" else "TESTOVANÁ",
+                d['cíl'],
+                d.get('hostname', ''),
+                d.get('ips', ''),
+                d['status'],
+                d['sim'],
+                d['img']
+            ] for k, d in results.items()])
         except: pass
 
         parsed = urlparse(ref_url).hostname or ref_url_raw
@@ -106,11 +115,24 @@ async def run_logic(ref_url_raw, start_num, end_num, extra_tlds, prefix_active, 
                 if stop_event.is_set(): break
                 batch = urls_to_check[i:i+60]
                 async def check(u):
-                    if stop_event.is_set(): return
+                    if stop_event.is_set():
+                        return
                     try:
                         async with session.get(u, allow_redirects=True, timeout=8, ssl=False) as r:
-                            results[u] = {'cíl': str(r.url), 'status': r.status, 'sim': 0, 'img': None, 'name': u}
-                    except: pass
+                            target = str(r.url)
+                            hostname, ips = get_host_and_ips(target)
+
+                            results[u] = {
+                                'cíl': target,
+                                'hostname': hostname,
+                                'ips': ips,
+                                'status': r.status,
+                                'sim': 0,
+                                'img': None,
+                                'name': u
+                            }
+                    except:
+                        pass
                 await asyncio.gather(*(check(u) for u in batch))
 
         to_photo = [u for u in results if u != "REFERENCE"]
@@ -127,7 +149,16 @@ async def run_logic(ref_url_raw, start_num, end_num, extra_tlds, prefix_active, 
                     sim_val = int((1 - ((ref_hash - test_hash) / 64.0)) * 100)
                 results[u]['sim'] = max(0, sim_val); results[u]['img'] = test_shot
             except: continue
-            emitter.result_signal.emit([[d['name'], "REFERENČNÍ" if k == "REFERENCE" else "TESTOVANÁ", d['cíl'], d['status'], d['sim'], d['img']] for k, d in results.items()])
+            emitter.result_signal.emit([[
+                d['name'],
+                "REFERENČNÍ" if k == "REFERENCE" else "TESTOVANÁ",
+                d['cíl'],
+                d.get('hostname', ''),
+                d.get('ips', ''),
+                d['status'],
+                d['sim'],
+                d['img']
+            ] for k, d in results.items()])
             emitter.progress_signal.emit(i + 1, len(to_photo))
     finally:
         await browser.close()
@@ -209,8 +240,17 @@ class MainWindow(QMainWindow):
         self.pbar = QProgressBar(); self.pbar.setMinimumHeight(20); self.pbar.setStyleSheet("QProgressBar { border: 1px solid #bbb; border-radius: 10px; text-align: center; } QProgressBar::chunk { background-color: #4caf50; border-radius: 10px; }")
         main_layout.addWidget(self.pbar)
         
-        self.table = QTableWidget(0, 6)
-        self.table.setHorizontalHeaderLabels(["Doména", "Typ", "Cílová URL", "Kód", "Shoda %", "Náhled"])
+        self.table = QTableWidget(0, 8)
+        self.table.setHorizontalHeaderLabels([
+            "Doména",
+            "Typ",
+            "Cílová URL",
+            "Hostname",
+            "IP adresy",
+            "Kód",
+            "Shoda %",
+            "Náhled"
+        ])
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.table.verticalHeader().setDefaultSectionSize(100)
         self.table.setStyleSheet("QTableWidget { gridline-color: #eee; border: 1px solid #ddd; } QHeaderView::section { background-color: #f8f8f8; font-weight: bold; border: 1px solid #ddd; }")
@@ -254,21 +294,63 @@ class MainWindow(QMainWindow):
 
     def update_table(self, data):
         self.current_data = data
-        data.sort(key=lambda x: (x[1] != "REFERENČNÍ DOMÉNA", x[3] != 200, -x[4]))
+
+        data.sort(key=lambda x: (
+            x[1] != "REFERENČNÍ",
+            x[5] != 200,
+            -x[6]
+        ))
+
         self.table.setRowCount(len(data))
+
         for i, row in enumerate(data):
-            for j in range(5):
-                item = QTableWidgetItem(f"{row[j]} %" if j == 4 else str(row[j]))
-                if "REFERENČNÍ" in row[1]: item.setBackground(QColor("#fff9c4"))
-                elif row[3] == 200: item.setBackground(QColor("#f1f8e9"))
-                item.setTextAlignment(Qt.AlignCenter); self.table.setItem(i, j, item)
-            if row[5]:
-                pix = QPixmap.fromImage(QImage.fromData(row[5])).scaled(180, 100, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-                lbl = QLabel(); lbl.setPixmap(pix); lbl.setAlignment(Qt.AlignCenter); self.table.setCellWidget(i, 5, lbl)
+
+            for j in range(7):
+                item = QTableWidgetItem(f"{row[j]} %" if j == 6 else str(row[j]))
+
+                if "REFERENČNÍ" in row[1]:
+                    item.setBackground(QColor("#fff9c4"))
+                elif row[5] == 200:
+                    item.setBackground(QColor("#f1f8e9"))
+
+                item.setTextAlignment(Qt.AlignCenter)
+                self.table.setItem(i, j, item)
+
+            if row[7]:
+                pix = QPixmap.fromImage(
+                    QImage.fromData(row[7])
+                ).scaled(180, 100, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+
+                lbl = QLabel()
+                lbl.setPixmap(pix)
+                lbl.setAlignment(Qt.AlignCenter)
+                self.table.setCellWidget(i, 7, lbl)
 
     def export_excel(self):
-        path, _ = QFileDialog.getSaveFileName(self, "Uložit", "vysledky.xlsx", "Excel (*.xlsx)")
-        if path: pd.DataFrame([{"Doména": r[0], "Typ": r[1], "URL": r[2], "Kód": r[3], "Shoda %": r[4]} for r in self.current_data]).to_excel(path, index=False)
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Uložit",
+            "vysledky.xlsx",
+            "Excel (*.xlsx)"
+        )
+
+        if path:
+            pd.DataFrame([
+                {
+                    "Doména": r[0],
+                    "Typ": r[1],
+                    "URL": r[2],
+                    "Hostname": r[3],
+                    "IP adresy": r[4],
+                    "Kód": r[5],
+                    "Shoda %": r[6]
+                }
+                for r in self.current_data
+            ]).to_excel(path, index=False)
+
 
 if __name__ == "__main__":
-    app = QApplication(sys.argv); w = MainWindow(); w.show(); sys.exit(app.exec_())
+    app = QApplication(sys.argv)
+    w = MainWindow()
+    w.show()
+    sys.exit(app.exec_())   
