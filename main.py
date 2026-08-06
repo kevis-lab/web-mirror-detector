@@ -1,6 +1,7 @@
 import sys, asyncio, aiohttp, re, threading, io, os
 import pandas as pd
 from urllib.parse import urlparse
+import socket
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QPushButton, QTableWidget, QTableWidgetItem, QProgressBar, QHeaderView, QFileDialog, QMessageBox, QCheckBox, QSpacerItem, QSizePolicy
@@ -10,6 +11,18 @@ from PyQt5.QtGui import QColor, QPixmap, QImage
 from PIL import Image
 import imagehash
 from pyppeteer import launch
+
+def get_host_and_ips(url):
+    try:
+        host = urlparse(url).hostname or url
+        infos = socket.getaddrinfo(host, None)
+
+        ips = sorted(set(info[4][0] for info in infos))
+
+        return host, ", ".join(ips)
+
+    except Exception:
+        return "", ""
 
 class SignalEmitter(QObject):
     progress_signal = pyqtSignal(int, int)
@@ -46,7 +59,18 @@ async def run_logic(ref_url_raw, start_num, end_num, extra_tlds, prefix_active, 
             await asyncio.sleep(2)
             ref_img_bytes = await page.screenshot({'type': 'png'})
             ref_hash = imagehash.phash(Image.open(io.BytesIO(ref_img_bytes)))
-            results["REFERENCE"] = {'cíl': ref_url, 'status': 200, 'sim': 100, 'img': ref_img_bytes, 'name': ref_url}
+            hostname, ips = get_host_and_ips(ref_url)
+
+            results["REFERENCE"] = {
+                'cíl': ref_url,
+                'hostname': hostname,
+                'ips': ips,
+                'status': 200,
+                'sim': 100,
+                'img': ref_img_bytes,
+                'name': ref_url
+            }
+
             emitter.result_signal.emit([[ref_url, "REFERENČNÍ DOMÉNA", ref_url, 200, 100, ref_img_bytes]])
         except: pass
 
