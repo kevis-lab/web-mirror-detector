@@ -2,7 +2,7 @@
 
 
 a = Analysis(
-    ['pyqt5.py'],
+    ['main.py'],
     pathex=[],
     binaries=[],
     datas=[],
