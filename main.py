@@ -1,7 +1,7 @@
 import sys, asyncio, aiohttp, re, threading, io, os
 import pandas as pd
 from urllib.parse import urlparse
-import socket
+from network import get_host_and_ips
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QPushButton, QTableWidget, QTableWidgetItem, QProgressBar, QHeaderView, QFileDialog, QMessageBox, QCheckBox, QSpacerItem, QSizePolicy
@@ -11,18 +11,6 @@ from PyQt5.QtGui import QColor, QPixmap, QImage
 from PIL import Image
 import imagehash
 from pyppeteer import launch
-
-def get_host_and_ips(url):
-    try:
-        host = urlparse(url).hostname or url
-        infos = socket.getaddrinfo(host, None)
-
-        ips = sorted(set(info[4][0] for info in infos))
-
-        return host, ", ".join(ips)
-
-    except Exception:
-        return "", ""
 
 class SignalEmitter(QObject):
     progress_signal = pyqtSignal(int, int)
