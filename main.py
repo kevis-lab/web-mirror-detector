@@ -11,6 +11,8 @@ from PyQt5.QtGui import QColor, QPixmap, QImage
 from PIL import Image
 import imagehash
 from pyppeteer import launch
+from detector import generate_candidate_urls
+
 
 class SignalEmitter(QObject):
     progress_signal = pyqtSignal(int, int)
@@ -71,32 +73,15 @@ async def run_logic(ref_url_raw, start_num, end_num, extra_tlds, prefix_active, 
             ] for k, d in results.items()])
         except: pass
 
-        parsed = urlparse(ref_url).hostname or ref_url_raw
-        clean_hostname = parsed.replace("www.", "")
-        base_name = re.sub(r'\d+', '', clean_hostname.split('.')[0])
+        urls_to_check = generate_candidate_urls(
+            ref_url,
+            start_num,
+            end_num,
+            extra_tlds,
+            prefix_active,
+            suffix_active
+        )
         
-        target_tlds = list(set(extra_tlds))
-        raw_domains = []
-
-        for tld in target_tlds:
-            raw_domains.append(f"{base_name}.{tld}")
-            for i in range(start_num, end_num + 1):
-                if prefix_active: raw_domains.append(f"{i}{base_name}.{tld}")
-                if suffix_active: raw_domains.append(f"{base_name}{i}.{tld}")
-                if prefix_active and suffix_active:
-                    # Ochrana pro extrémní rozsahy
-                    if end_num > 50: continue 
-                    for j in range(start_num, end_num + 1):
-                        raw_domains.append(f"{i}{base_name}{j}.{tld}")
-
-        urls_to_check = []
-        for dom in list(set(raw_domains)):
-            urls_to_check.extend([f"https://{dom}", f"https://www.{dom}"])
-
-        urls_to_check = list(set(urls_to_check))
-        ref_host = urlparse(ref_url).hostname
-        urls_to_check = [u for u in urls_to_check if urlparse(u).hostname != ref_host]
-
         emitter.status_msg.emit(f"Prověřuji {len(urls_to_check)} variant...")
         async with aiohttp.ClientSession(headers={"User-Agent": USER_AGENT}) as session:
             for i in range(0, len(urls_to_check), 60):
