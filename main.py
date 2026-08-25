@@ -1,4 +1,4 @@
-import sys, asyncio, aiohttp, re, threading, io, os
+import sys, asyncio, re, threading, io, os
 import pandas as pd
 from urllib.parse import urlparse
 from network import get_host_and_ips
@@ -11,7 +11,7 @@ from PyQt5.QtGui import QColor, QPixmap, QImage
 from PIL import Image
 import imagehash
 from pyppeteer import launch
-from detector import generate_candidate_urls
+from detector import generate_candidate_urls, check_candidate_urls
 
 
 class SignalEmitter(QObject):
@@ -81,32 +81,16 @@ async def run_logic(ref_url_raw, start_num, end_num, extra_tlds, prefix_active, 
             prefix_active,
             suffix_active
         )
-        
-        emitter.status_msg.emit(f"Prověřuji {len(urls_to_check)} variant...")
-        async with aiohttp.ClientSession(headers={"User-Agent": USER_AGENT}) as session:
-            for i in range(0, len(urls_to_check), 60):
-                if stop_event.is_set(): break
-                batch = urls_to_check[i:i+60]
-                async def check(u):
-                    if stop_event.is_set():
-                        return
-                    try:
-                        async with session.get(u, allow_redirects=True, timeout=8, ssl=False) as r:
-                            target = str(r.url)
-                            hostname, ips = get_host_and_ips(target)
 
-                            results[u] = {
-                                'cíl': target,
-                                'hostname': hostname,
-                                'ips': ips,
-                                'status': r.status,
-                                'sim': 0,
-                                'img': None,
-                                'name': u
-                            }
-                    except:
-                        pass
-                await asyncio.gather(*(check(u) for u in batch))
+        emitter.status_msg.emit(f"Prověřuji {len(urls_to_check)} variant...")
+
+        results.update(
+            await check_candidate_urls(
+                urls_to_check,
+                USER_AGENT,
+                stop_event
+            )
+        )
 
         to_photo = [u for u in results if u != "REFERENCE"]
         for i, u in enumerate(to_photo):

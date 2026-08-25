@@ -1,5 +1,9 @@
 from urllib.parse import urlparse
 import re
+import asyncio
+import aiohttp
+
+from network import get_host_and_ips
 
 
 def generate_candidate_urls(
@@ -48,3 +52,50 @@ def generate_candidate_urls(
     ]
 
     return urls_to_check
+    
+async def check_candidate_urls(urls_to_check, user_agent, stop_event):
+    results = {}
+
+    async with aiohttp.ClientSession(
+        headers={"User-Agent": user_agent}
+    ) as session:
+
+        for i in range(0, len(urls_to_check), 60):
+            if stop_event.is_set():
+                break
+
+            batch = urls_to_check[i:i + 60]
+
+            async def check(url):
+                if stop_event.is_set():
+                    return
+
+                try:
+                    async with session.get(
+                        url,
+                        allow_redirects=True,
+                        timeout=8,
+                        ssl=False
+                    ) as response:
+
+                        target = str(response.url)
+                        hostname, ips = get_host_and_ips(target)
+
+                        results[url] = {
+                            "cíl": target,
+                            "hostname": hostname,
+                            "ips": ips,
+                            "status": response.status,
+                            "sim": 0,
+                            "img": None,
+                            "name": url
+                        }
+
+                except Exception:
+                    pass
+
+            await asyncio.gather(
+                *(check(url) for url in batch)
+            )
+
+    return results
