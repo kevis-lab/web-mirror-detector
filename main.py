@@ -1,4 +1,4 @@
-import sys, asyncio, re, threading, io, os
+import sys, asyncio, re, threading, os
 import pandas as pd
 from urllib.parse import urlparse
 from network import get_host_and_ips
@@ -8,9 +8,8 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.QtCore import Qt, pyqtSignal, QObject
 from PyQt5.QtGui import QColor, QPixmap, QImage
-from PIL import Image
-import imagehash
 from pyppeteer import launch
+from comparer import compare_url
 from detector import generate_candidate_urls, check_candidate_urls
 
 
@@ -97,15 +96,17 @@ async def run_logic(ref_url_raw, start_num, end_num, extra_tlds, prefix_active, 
             if stop_event.is_set(): break
             emitter.status_msg.emit(f"Srovnávám {i+1}/{len(to_photo)}: {u}")
             try:
-                await page.goto(results[u]['cíl'], {'waitUntil': 'networkidle2', 'timeout': 20000})
-                await asyncio.sleep(1.5)
-                test_shot = await page.screenshot({'type': 'png'})
-                sim_val = 0
-                if ref_hash:
-                    test_hash = imagehash.phash(Image.open(io.BytesIO(test_shot)))
-                    sim_val = int((1 - ((ref_hash - test_hash) / 64.0)) * 100)
-                results[u]['sim'] = max(0, sim_val); results[u]['img'] = test_shot
-            except: continue
+                sim_val, test_shot = await compare_url(
+                    page,
+                    results[u]['cíl'],
+                    ref_hash
+                )
+
+                results[u]['sim'] = sim_val
+                results[u]['img'] = test_shot
+
+            except:
+                continue
             emitter.result_signal.emit([[
                 d['name'],
                 "REFERENČNÍ" if k == "REFERENCE" else "TESTOVANÁ",
@@ -141,6 +142,7 @@ class MainWindow(QMainWindow):
         url_box.addWidget(QLabel("<b>Referenční URL:</b>"))
         self.url_edit = QLineEdit(); self.url_edit.setStyleSheet(input_style); self.url_edit.setFixedWidth(220); self.url_edit.setMinimumHeight(35)
         self.url_edit.textChanged.connect(self.auto_detect_logic)
+        self.url_edit.returnPressed.connect(self.start)
         url_box.addWidget(self.url_edit)
         url_box.addWidget(self.create_help("(vzor pro srovnání)"))
         top_row.addLayout(url_box)
@@ -161,7 +163,7 @@ class MainWindow(QMainWindow):
         range_box.addWidget(QLabel("<b>Rozsah čísel:</b>"))
         range_in = QHBoxLayout(); range_in.setSpacing(5)
         self.start_edit = QLineEdit("1"); self.start_edit.setFixedWidth(45); self.start_edit.setAlignment(Qt.AlignCenter); self.start_edit.setStyleSheet(input_style)
-        self.end_edit = QLineEdit("1000"); self.end_edit.setFixedWidth(55); self.end_edit.setAlignment(Qt.AlignCenter); self.end_edit.setStyleSheet(input_style)
+        self.end_edit = QLineEdit("100"); self.end_edit.setFixedWidth(55); self.end_edit.setAlignment(Qt.AlignCenter); self.end_edit.setStyleSheet(input_style)
         range_in.addWidget(self.start_edit); range_in.addWidget(QLabel("-")); range_in.addWidget(self.end_edit)
         range_box.addLayout(range_in)
         range_box.addWidget(self.create_help("(vč. domény bez čísla)"))
