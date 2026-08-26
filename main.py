@@ -1,5 +1,10 @@
 import sys, asyncio, re, threading, os
+import io
+
 import pandas as pd
+import imagehash
+from PIL import Image
+
 from urllib.parse import urlparse
 from network import get_host_and_ips
 from PyQt5.QtWidgets import (
@@ -121,6 +126,29 @@ async def run_logic(ref_url_raw, start_num, end_num, extra_tlds, prefix_active, 
     finally:
         await browser.close()
         emitter.finished_signal.emit()
+
+def natural_domain_key(url):
+    hostname = urlparse(url).hostname or url
+
+    hostname = hostname.lower()
+
+    if hostname.startswith("www."):
+        hostname = hostname[4:]
+
+    match = re.search(r"^(.*?)(\d+)?(\.[^.]+)$", hostname)
+
+    if not match:
+        return (hostname, -1)
+
+    prefix = match.group(1)
+    number = int(match.group(2)) if match.group(2) else -1
+    suffix = match.group(3)
+
+    return (
+        prefix,
+        number,
+        suffix
+    )
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -254,11 +282,12 @@ class MainWindow(QMainWindow):
     def update_table(self, data):
         self.current_data = data
 
-        data.sort(key=lambda x: (
-            x[1] != "REFERENČNÍ",
-            x[5] != 200,
-            -x[6]
-        ))
+        data.sort(
+            key=lambda x: (
+                natural_domain_key(x[0]),
+                0 if not x[0].lower().startswith("www.") else 1
+            )
+        )
 
         self.table.setRowCount(len(data))
 
